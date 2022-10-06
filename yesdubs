@@ -1,0 +1,55 @@
+DECLARE @TaskObjectID bigint;
+DECLARE @PersonObjectID bigint;
+
+-- Uzduoties kuria norime uzbaigti ObjectID:
+SET @TaskObjectID = 925799;
+
+-- Atsakingo vykdytojo ObjectID kuriam norime uzbaigti  uzduoti. Nepildome jeigu norime uzbaigti konkrecia uzduoti visiems atsakingiem vykdytojams:
+SET @PersonObjectID = 774326;
+
+
+IF @PersonObjectID is null
+	BEGIN
+		---- Uzbaigia pacia uzduoti (Uzdaro uzduoties objekta)
+		update task
+		set completed = getDate(), IsCommited = 1, PercentComplete = 100
+		where ObjectID= @TaskObjectID
+ 
+		---- Uzbaigia uzduoti visiem uzduoties atsakingiem vykdytojams.
+		update TaskResponsiblePerformerExpanded 
+		set PercentComplete = 100, statusid = 2959, DateComplete = getDate() 
+		where parentversionid= (SELECT ID FROM TASK WHERE OBJECTID=@TaskObjectID) AND DateComplete IS NULL
+	END
+ELSE
+	BEGIN
+		---- Uzbaigia uzduoti konkreciam atsakingam vykdytojui. Pacios uzduoties ir kitu atsakingu vykdytoju neliecia.
+		update TaskResponsiblePerformerExpanded 
+		set PercentComplete = 100, statusid = 2959, DateComplete = getDate() 
+		where childobjectid=@PersonObjectID and parentversionid=(SELECT ID FROM TASK WHERE OBJECTID=@TaskObjectID)
+
+		--jei nebaigusiu yra 0 tada ir pati task uzbaigia
+		IF ((SELECT count(ID) FROM TaskResponsiblePerformerExpanded WHERE ParentVersionID = (SELECT ID FROM TASK WHERE OBJECTID=@TaskObjectID) AND DateComplete IS NULL) = 0 AND (SELECT Completed FROM Task WHERE ObjectID= @TaskObjectId) IS NULL)
+		BEGIN
+			update task
+			set completed = getDate(), IsCommited = 1, PercentComplete = 100
+			where ObjectID= @TaskObjectID
+		END
+		
+	END
+
+------------------------------------------------------------------
+-- GBL addition for performers without an account
+-- BEGIN
+------------------------------------------------------------------
+
+UPDATE TaskResponsiblePerformerExpanded  SET DateComplete = GETDATE() WHERE ID in 
+(
+SELECT trpe.ID FROM Task t 
+INNER JOIN TaskResponsiblePerformerExpanded trpe ON trpe.ParentVersionID = t.ID  AND trpe.DateComplete is null
+INNER JOIN Principal p ON p.ObjectID =trpe.ChildObjectID AND p.AccountName is null
+WHERE t.ResponsibleID = @PersonObjectID AND t.Completed is NULL 
+)
+
+------------------------------------------------------------------
+-- END
+------------------------------------------------------------------
